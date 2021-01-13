@@ -14,6 +14,8 @@ class TtsEventType(Enum):
 class VcRoid2(object):
     __SAMPLE_RATE = 44100 # Don't change this value
     __MSEC_TIMEOUT = 10000
+    __LEN_TEXT_BUF_MAX = 65536
+    __LEN_RAW_BUF_MAX = 1048576
 
     def __init__(self, *, install_path = None, install_path_x86 = None):
         '''
@@ -33,6 +35,7 @@ class VcRoid2(object):
         self.__is_opened = False
         self.__install_path = None
         self.__install_path_x86 = None
+        self.__param = None
         self.__default_parameter = None
         self.__parameter = None
         
@@ -121,7 +124,7 @@ class VcRoid2(object):
         '''
         return self.__is_opened
 
-    def listLanguage(self):
+    def listLanguages(self):
         '''
         Acquire list of installed language library
 
@@ -230,7 +233,7 @@ class VcRoid2(object):
         elif result != aitalk.ResultCode.SUCCESS:
             raise Exception(result)
 
-    def listVoice(self):
+    def listVoices(self):
         '''
         Acquire list of installed voice library
 
@@ -259,9 +262,14 @@ class VcRoid2(object):
             raise RuntimeError()
         
         # Unload current voice library
-        result = self.__dll.AITalkAPI_VoiceClear()
-        if (result != aitalk.ResultCode.SUCCESS) and (result != aitalk.ResultCode.NOT_LOADED):
-            raise Exception(result)
+        #result = self.__dll.AITalkAPI_VoiceClear()
+        #if (result != aitalk.ResultCode.SUCCESS) and (result != aitalk.ResultCode.NOT_LOADED):
+        #    raise Exception(result)
+
+        # Clear parameters
+        self.__param = None
+        self.__parameter = None
+        self.__default_parameter = None
 
         # Load new voice library
         result = self.__dll.AITalkAPI_VoiceLoad(c_char_p(voice_name.encode("shift-jis")))
@@ -291,11 +299,33 @@ class VcRoid2(object):
         # Copy
         self.__parameter = TTtsParam()
         memmove(addressof(self.__parameter), addressof(self.__default_parameter), sizeof(TTtsParam))
+        self.__param = Param(self.__default_parameter, self.__parameter)
 
         # Set some parameters
         self.__parameter.pauseBegin = 0
         self.__parameter.pauseTerm = 0
         self.__parameter.extendFormat = aitalk.ExtendFormat.JEITA_RUBY | aitalk.ExtendFormat.AUTO_BOOKMARK
+
+    def listSpeakers(self):
+        '''
+        Acquire list of speaker in the voice library
+
+        Returns
+        -------
+        speaker_list : string[]
+        '''
+        if self.__parameter is None:
+            raise RuntimeError()
+        speaker_count = min(self.__parameter.numSpeakers, len(self.__parameter.speaker))
+        result = []
+        for index in range(speaker_count):
+            speaker_param = self.__parameter.speaker[index]
+            result.append(speaker_param.voiceName.decode("shift-jis"))
+        return result
+
+    @property
+    def param(self):
+        return self.__param
 
     def textToKana(self, text, timeout = None):
         '''
@@ -319,7 +349,7 @@ class VcRoid2(object):
         # Create variables used by the callback
         event = threading.Event()
         output = bytearray()
-        text_buf = (c_char * min([self.__parameter.lenTextBufBytes, 65536]))()
+        text_buf = (c_char * min(self.__parameter.lenTextBufBytes, VcRoid2.__LEN_TEXT_BUF_MAX))()
 
         # Create callback function
         def callback(reason_code, job_id, user_data):
@@ -396,7 +426,7 @@ class VcRoid2(object):
         
         # Create variables used by the callback
         event = threading.Event()
-        raw_buf = (c_char * min([self.__parameter.lenRawBufBytes * 2, 1048576]))()
+        raw_buf = (c_char * min(self.__parameter.lenRawBufBytes * 2, VcRoid2.__LEN_RAW_BUF_MAX))()
         output = io.BytesIO()
         output.write(b"\x00" * 44) # 44 is WAVE header size
         tts_events = []
@@ -537,3 +567,302 @@ class VcRoid2(object):
             index = end_pos
         output.seek(0)
         return output.read()
+
+class Param(object):
+    def __init__(self, default_parameter, parameter):
+        self.__default_parameter = default_parameter
+        self.__parameter = parameter
+
+        # Get reference of current speaker parameter
+        self.__default_speaker_parameter = self.__default_parameter.speaker[0]
+        self.__speaker_parameter = self.__parameter.speaker[0]
+        for index in range(min(self.__parameter.numSpeakers, len(self.__parameter.speaker))):
+            speaker_param = self.__parameter.speaker[index]
+            if speaker_param.voiceName == self.__parameter.voiceName:
+                self.__default_speaker_parameter = self.__default_parameter.speaker[index]
+                self.__speaker_parameter = self.__parameter.speaker[index]
+                break
+
+    @property
+    def minMasterVolume(self):
+        '''
+        Minimum master volume (マスター音量) : float
+        '''
+        return 0.0
+
+    @property
+    def maxMasterVolume(self):
+        '''
+        Maximum master volume (マスター音量) : float
+        '''
+        return 5.0
+
+    @property
+    def defaultMasterVolume(self):
+        '''
+        Default master volume (マスター音量) : float
+        '''
+        return self.__default_parameter.volume
+
+    @property
+    def masterVolume(self):
+        '''
+        Current master volume (マスター音量) : float
+        '''
+        return self.__parameter.volume
+
+    @masterVolume.setter
+    def masterVolume(self, value):
+        '''
+        Current master volume (マスター音量) : float
+        '''
+        self.__parameter.volume = max(self.minMasterVolume, min(float(value), self.maxMasterVolume))
+
+    @property
+    def minVolume(self):
+        '''
+        Minimum volume (音量) : float
+        '''
+        return 0.0
+
+    @property
+    def maxVolume(self):
+        '''
+        Maximum volume (音量) : float
+        '''
+        return 2.0
+
+    @property
+    def defaultVolume(self):
+        '''
+        Default volume (音量) : float
+        '''
+        return self.__default_speaker_parameter.volume
+
+    @property
+    def volume(self):
+        '''
+        Current volume (音量) : float
+        '''
+        return self.__speaker_parameter.volume
+
+    @volume.setter
+    def volume(self, value):
+        '''
+        Current volume (音量) : float
+        '''
+        self.__speaker_parameter.volume = max(self.minVolume, min(float(value), self.maxVolume))
+
+    @property
+    def minSpeed(self):
+        '''
+        Minimum speed (話速) : float
+        '''
+        return 0.5
+
+    @property
+    def maxSpeed(self):
+        '''
+        Maximum speed (話速) : float
+        '''
+        return 4.0
+
+    @property
+    def defaultSpeed(self):
+        '''
+        Default speed (話速) : float
+        '''
+        return self.__default_speaker_parameter.speed
+
+    @property
+    def speed(self):
+        '''
+        Current speed (話速) : float
+        '''
+        return self.__speaker_parameter.speed
+
+    @speed.setter
+    def speed(self, value):
+        '''
+        Current speed (話速) : float
+        '''
+        self.__speaker_parameter.speed = max(self.minSpeed, min(float(value), self.maxSpeed))
+
+    @property
+    def minPitch(self):
+        '''
+        Minimum pitch (高さ) : float
+        '''
+        return 0.5
+
+    @property
+    def maxPitch(self):
+        '''
+        Maximum pitch (高さ) : float
+        '''
+        return 2.0
+
+    @property
+    def defaultPitch(self):
+        '''
+        Default pitch (高さ) : float
+        '''
+        return self.__default_speaker_parameter.pitch
+
+    @property
+    def pitch(self):
+        '''
+        Current pitch (高さ) : float
+        '''
+        return self.__speaker_parameter.pitch
+
+    @pitch.setter
+    def pitch(self, value):
+        '''
+        Current pitch (高さ) : float
+        '''
+        self.__speaker_parameter.pitch = max(self.minPitch, min(float(value), self.maxPitch))
+
+    @property
+    def minEmphasis(self):
+        '''
+        Minimum emphasis (抑揚) : float
+        '''
+        return 0.0
+
+    @property
+    def maxEmphasis(self):
+        '''
+        Maximum emphasis (抑揚) : float
+        '''
+        return 2.0
+
+    @property
+    def defaultEmphasis(self):
+        '''
+        Default emphasis (抑揚) : float
+        '''
+        return self.__default_speaker_parameter.range
+
+    @property
+    def emphasis(self):
+        '''
+        Current emphasis (抑揚) : float
+        '''
+        return self.__speaker_parameter.range
+
+    @emphasis.setter
+    def emphasis(self, value):
+        '''
+        Current emphasis (抑揚) : float
+        '''
+        self.__speaker_parameter.range = max(self.minEmphasis, min(float(value), self.maxEmphasis))
+
+    @property
+    def minPauseMiddle(self):
+        '''
+        Minimum middle pause (短ポーズ時間) [ms] : int
+        '''
+        return 80
+
+    @property
+    def maxPauseMiddle(self):
+        '''
+        Maximum middle pause (短ポーズ時間) [ms] : int
+        '''
+        return 500
+
+    @property
+    def defaultPauseMiddle(self):
+        '''
+        Default middle pause (短ポーズ時間) [ms] : int
+        '''
+        return self.__default_speaker_parameter.pauseMiddle
+
+    @property
+    def pauseMiddle(self):
+        '''
+        Current middle pause (短ポーズ時間) [ms] : int
+        '''
+        return self.__speaker_parameter.pauseMiddle
+
+    @pauseMiddle.setter
+    def pauseMiddle(self, value):
+        '''
+        Current middle pause (短ポーズ時間) [ms] : int
+        '''
+        self.__speaker_parameter.pauseMiddle = max(self.minPauseMiddle, min(int(value), self.maxPauseMiddle))
+
+    @property
+    def minPauseLong(self):
+        '''
+        Minimum long pause (長ポーズ時間) [ms] : int
+        '''
+        return 100
+
+    @property
+    def maxPauseLong(self):
+        '''
+        Maximum long pause (長ポーズ時間) [ms] : int
+        '''
+        return 2000
+
+    @property
+    def defaultPauseLong(self):
+        '''
+        Default long pause (長ポーズ時間) [ms] : int
+        '''
+        return self.__default_speaker_parameter.pauseLong
+
+    @property
+    def pauseLong(self):
+        '''
+        Current long pause (長ポーズ時間) [ms] : int
+        pauseLong must be longer than or equal to pauseMiddle
+        '''
+        return self.__speaker_parameter.pauseLong
+
+    @pauseLong.setter
+    def pauseLong(self, value):
+        '''
+        Current long pause (長ポーズ時間) [ms] : int
+        pauseLong must be longer than or equal to pauseMiddle
+        '''
+        self.__speaker_parameter.pauseLong = max(self.minPauseLong, min(int(value), self.maxPauseLong))
+
+    @property
+    def minPauseSentence(self):
+        '''
+        Minimum sentence pause (文末ポーズ時間) [ms] : int
+        '''
+        return 200
+
+    @property
+    def maxPauseSentence(self):
+        '''
+        Maximum sentence pause (文末ポーズ時間) [ms] : int
+        '''
+        return 10000
+
+    @property
+    def defaultPauseSentence(self):
+        '''
+        Default sentence pause (文末ポーズ時間) [ms] : int
+        '''
+        return self.__default_speaker_parameter.pauseSentence
+
+    @property
+    def pauseSentence(self):
+        '''
+        Current sentence pause (文末ポーズ時間) [ms] : int
+        pauseSentence must be longer than or equal to pauseLong
+        '''
+        return self.__speaker_parameter.pauseSentence
+
+    @pauseSentence.setter
+    def pauseSentence(self, value):
+        '''
+        Current sentence pause (文末ポーズ時間) [ms] : int
+        pauseSentence must be longer than or equal to pauseLong
+        '''
+        self.__speaker_parameter.pauseSentence = max(self.minPauseSentence, min(int(value), self.maxPauseSentence))
