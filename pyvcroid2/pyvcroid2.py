@@ -68,6 +68,7 @@ class VcRoid2(object):
 
         # Open the DLL
         self.__dll = windll.LoadLibrary(self.__install_path + "\\aitalked.dll")
+        self.__dll.AITalkAPI_Init.argtypes = [POINTER(aitalk.TConfig)]
         self.__dll.AITalkAPI_Init.restype = aitalk.ResultCode
         self.__dll.AITalkAPI_LangClear.restype = aitalk.ResultCode
         self.__dll.AITalkAPI_LangLoad.restype = aitalk.ResultCode
@@ -78,9 +79,11 @@ class VcRoid2(object):
         self.__dll.AITalkAPI_VoiceLoad.restype = aitalk.ResultCode
         self.__dll.AITalkAPI_GetParam.restype = aitalk.ResultCode
         self.__dll.AITalkAPI_SetParam.restype = aitalk.ResultCode
+        self.__dll.AITalkAPI_TextToKana.argtypes = [POINTER(c_int32), POINTER(aitalk.TJobParam), c_char_p]
         self.__dll.AITalkAPI_TextToKana.restype = aitalk.ResultCode
         self.__dll.AITalkAPI_CloseKana.restype = aitalk.ResultCode
         self.__dll.AITalkAPI_GetKana.restype = aitalk.ResultCode
+        self.__dll.AITalkAPI_TextToSpeech.argtypes = [POINTER(c_int32), POINTER(aitalk.TJobParam), c_char_p]
         self.__dll.AITalkAPI_TextToSpeech.restype = aitalk.ResultCode
         self.__dll.AITalkAPI_CloseSpeech.restype = aitalk.ResultCode
         self.__dll.AITalkAPI_GetData.restype = aitalk.ResultCode
@@ -278,7 +281,7 @@ class VcRoid2(object):
 
         # Get parameter size
         param_size = c_uint32(0)
-        self.__dll.AITalkAPI_GetParam.argtypes = (c_void_p, POINTER(c_uint32))
+        self.__dll.AITalkAPI_GetParam.argtypes = [c_void_p, POINTER(c_uint32)]
         result = self.__dll.AITalkAPI_GetParam(c_void_p(), byref(param_size))
         if result != aitalk.ResultCode.INSUFFICIENT:
             raise Exception(result)
@@ -291,7 +294,8 @@ class VcRoid2(object):
         param_size = c_uint32(sizeof(TTtsParam))
         self.__default_parameter = TTtsParam()
         self.__default_parameter.size = c_uint32(sizeof(TTtsParam))
-        self.__dll.AITalkAPI_GetParam.argtypes = (POINTER(TTtsParam), POINTER(c_uint32))
+        self.__dll.AITalkAPI_SetParam.argtypes = [POINTER(TTtsParam)]
+        self.__dll.AITalkAPI_GetParam.argtypes = [POINTER(TTtsParam), POINTER(c_uint32)]
         result = self.__dll.AITalkAPI_GetParam(self.__default_parameter, byref(param_size))
         if result != aitalk.ResultCode.SUCCESS:
             raise Exception(result)
