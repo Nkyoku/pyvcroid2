@@ -331,21 +331,21 @@ class VcRoid2(object):
     def param(self):
         return self.__param
 
-    def textToKana(self, text, timeout = None):
+    def textToKana(self, text, *, timeout = None):
         '''
-        Convert text to AIKANA
+        Convert text to AIKANA.
 
         Parameters
         ----------
         text : string
-            The text to convert
+            The text to convert.
         timeout : float
-            Timeout of conversion process in seconds
+            Timeout of conversion process in seconds.
         
         Returns
         -------
         kana : string
-            Result of conversion
+            Result of conversion.
         '''
         if not self.__is_opened:
             raise RuntimeError()
@@ -407,21 +407,24 @@ class VcRoid2(object):
 
         return VcRoid2.__ReplaceIrqMark(output.decode("shift-jis"), shiftjis_positions)
 
-    def kanaToSpeech(self, kana, timeout = None):
+    def kanaToSpeech(self, kana, *, timeout = None, raw = False):
         '''
-        Convert AIKANA to audio data
+        Convert AIKANA to audio data.
 
         Parameters
         ----------
         kana : string
-            The AIKANA string that was converted textToKana()
+            The AIKANA string that was converted textToKana().
         timeout : float
-            Timeout of conversion process in seconds
+            Timeout of conversion process in seconds.
+        raw : boolean
+            If True, speech is raw binary.
+            If False, speech is WAVE format.
         
         Returns
         -------
         speech : bytes
-            Result of conversion (WAVE format)
+            Result of conversion (WAVE or raw binary)
         tts_events : []
             Event data
         '''
@@ -432,7 +435,8 @@ class VcRoid2(object):
         event = threading.Event()
         raw_buf = (c_char * min(self.__parameter.lenRawBufBytes * 2, VcRoid2.__LEN_RAW_BUF_MAX))()
         output = io.BytesIO()
-        output.write(b"\x00" * 44) # 44 is WAVE header size
+        if not raw:
+            output.write(b"\x00" * 44) # 44 is WAVE header size
         tts_events = []
 
         # Create rawbuf callback function
@@ -498,40 +502,44 @@ class VcRoid2(object):
             self.__parameter.procRawBuf = aitalk.ProcRawBuf()
             self.__parameter.procEventTts = aitalk.ProcEventTts()
         
-        # Add WAVE header information
-        output_size = output.seek(0, io.SEEK_END)
-        output.seek(0)
-        output.write(b"RIFF")
-        output.write(output_size.to_bytes(4, byteorder = "little"))
-        output.write(b"WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00")
-        output.write((VcRoid2.__SAMPLE_RATE).to_bytes(4, byteorder = "little"))
-        output.write((VcRoid2.__SAMPLE_RATE * 2).to_bytes(4, byteorder = "little"))
-        output.write(b"\x02\x00\x10\x00data")
-        output.write((output_size - 44).to_bytes(4, byteorder = "little"))
+        if not raw:
+            # Add WAVE header information
+            output_size = output.seek(0, io.SEEK_END)
+            output.seek(0)
+            output.write(b"RIFF")
+            output.write(output_size.to_bytes(4, byteorder = "little"))
+            output.write(b"WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00")
+            output.write((VcRoid2.__SAMPLE_RATE).to_bytes(4, byteorder = "little"))
+            output.write((VcRoid2.__SAMPLE_RATE * 2).to_bytes(4, byteorder = "little"))
+            output.write(b"\x02\x00\x10\x00data")
+            output.write((output_size - 44).to_bytes(4, byteorder = "little"))
 
         output.seek(0)
         return output.read(), tts_events
 
-    def textToSpeech(self, text, timeout = None):
+    def textToSpeech(self, text, *, timeout = None, raw = False):
         '''
-        Convert text to audio data
+        Convert text to audio data.
 
         Parameters
         ----------
         text : string
-            The text to convert
+            The text to convert.
         timeout : float
-            Timeout of conversion process in seconds
+            Timeout of conversion process in seconds.
+        raw : boolean
+            If True, speech is raw binary.
+            If False, speech is WAVE format.
         
         Returns
         -------
         speech : bytes
-            Result of conversion (WAVE format)
+            Result of conversion (WAVE format).
         event : []
-            Event data
+            Event data.
         '''
-        kana = self.textToKana(text, timeout)
-        return self.kanaToSpeech(kana, timeout)
+        kana = self.textToKana(text, timeout = timeout)
+        return self.kanaToSpeech(kana, timeout = timeout, raw = raw)
 
     def __CalculateShiftJisCharaterPositions(input_string):
         shiftjis_string = bytearray()
