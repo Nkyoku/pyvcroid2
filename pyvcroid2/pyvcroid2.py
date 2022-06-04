@@ -64,7 +64,7 @@ class VcRoid2(object):
             windll.ole32.CoTaskMemFree(pwstr)
             self.__install_path_x86 = program_files_x86_path + "\\AHS\\VOICEROID2"
         else:
-            self.__install_path_x86 = install_path
+            self.__install_path_x86 = install_path_x86
 
         # Open the DLL
         self.__dll = windll.LoadLibrary(self.__install_path + "\\aitalked.dll")
